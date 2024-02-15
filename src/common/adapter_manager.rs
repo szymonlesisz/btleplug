@@ -11,7 +11,7 @@
 // following copyright:
 //
 // Copyright (c) 2014 The Rust Project Developers
-use crate::api::{CentralEvent, Peripheral};
+use crate::api::{CentralState, CentralEvent, Peripheral};
 use crate::platform::PeripheralId;
 use dashmap::{mapref::one::RefMut, DashMap};
 use futures::stream::{Stream, StreamExt};
@@ -25,6 +25,8 @@ pub struct AdapterManager<PeripheralType>
 where
     PeripheralType: Peripheral,
 {
+    // state: Arc<Mutex<CentralState>>,
+    state: CentralState,
     peripherals: DashMap<PeripheralId, PeripheralType>,
     events_channel: broadcast::Sender<CentralEvent>,
 }
@@ -33,6 +35,7 @@ impl<PeripheralType: Peripheral + 'static> Default for AdapterManager<Peripheral
     fn default() -> Self {
         let (broadcast_sender, _) = broadcast::channel(16);
         AdapterManager {
+            state: CentralState::Unknown,
             peripherals: DashMap::new(),
             events_channel: broadcast_sender,
         }
@@ -83,4 +86,14 @@ where
     pub fn peripheral(&self, id: &PeripheralId) -> Option<PeripheralType> {
         self.peripherals.get(id).map(|val| val.value().clone())
     }
+
+    // pub async fn set_state(&self, state: CentralState) {
+    //     let value = self.state.lock().await;
+    //     *value = state;
+    //     // self.state = state.clone();
+    // }
+
+    // pub async fn get_state(&self) -> CentralState {
+    //     self.state.lock().await
+    // }
 }
