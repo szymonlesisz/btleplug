@@ -391,6 +391,10 @@ impl ApiPeripheral for Peripheral {
         Ok(())
     }
 
+    async fn connect_with_timeout(&self, timeout: std::time::Duration) -> Result<()> {
+        self.connect().await
+    }
+
     /// Terminates a connection to the device. This is a synchronous operation.
     async fn disconnect(&self) -> Result<()> {
         // We need to clear the services because if this device is re-connected,

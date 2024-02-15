@@ -172,6 +172,13 @@ impl api::Peripheral for Peripheral {
         Ok(())
     }
 
+    async fn connect_with_timeout(&self, timeout: std::time::Duration) -> Result<()> {
+        self.session
+            .connect_with_timeout(&self.device, timeout)
+            .await?;
+        Ok(())
+    }
+
     async fn disconnect(&self) -> Result<()> {
         self.session.disconnect(&self.device).await?;
         Ok(())

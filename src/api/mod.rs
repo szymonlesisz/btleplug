@@ -255,6 +255,11 @@ pub trait Peripheral: Send + Sync + Clone + Debug {
     /// attempt to communicate with a device will fail until it is connected.
     async fn connect(&self) -> Result<()>;
 
+    /// Creates a connection to the device with the given timeout. If this method returns Ok there
+    /// has been a successful connection. Note that peripherals allow only one connection at a time.
+    /// Operations that attempt to communicate with a device will fail until it is connected.
+    async fn connect_with_timeout(&self, timeout: std::time::Duration) -> Result<()>;
+
     /// Terminates a connection to the device.
     async fn disconnect(&self) -> Result<()>;
 

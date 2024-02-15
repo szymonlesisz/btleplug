@@ -240,6 +240,10 @@ impl api::Peripheral for Peripheral {
         })
     }
 
+    async fn connect_with_timeout(&self, timeout: std::time::Duration) -> Result<()> {
+        self.connect().await
+    }
+
     async fn disconnect(&self) -> Result<()> {
         let future = self.with_obj(|_env, obj| JSendFuture::try_from(obj.disconnect()?))?;
         let result_ref = future.await?;
