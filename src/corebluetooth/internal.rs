@@ -145,6 +145,7 @@ impl CBCharacteristic {
 
 #[derive(Clone, Debug)]
 pub enum CoreBluetoothReply {
+    AdapterState(cb::CBManagerState),
     ReadResult(Vec<u8>),
     Connected(BTreeSet<Service>),
     State(CBPeripheralState),
@@ -351,6 +352,9 @@ impl Debug for CoreBluetoothInternal {
 
 #[derive(Debug)]
 pub enum CoreBluetoothMessage {
+    GetAdapterState {
+        future: CoreBluetoothReplyStateShared,
+    },
     StartScanning {
         filter: ScanFilter,
     },
@@ -1080,6 +1084,9 @@ impl CoreBluetoothInternal {
             adapter_msg = self.message_receiver.select_next_some() => {
                 trace!("Adapter message!");
                 match adapter_msg {
+                    CoreBluetoothMessage::GetAdapterState { future } => {
+                        self.get_adapter_state(future);
+                    },
                     CoreBluetoothMessage::StartScanning{filter} => self.start_discovery(filter),
                     CoreBluetoothMessage::StopScanning => self.stop_discovery(),
                     CoreBluetoothMessage::ConnectDevice{peripheral_uuid, future} => {
@@ -1121,6 +1128,13 @@ impl CoreBluetoothInternal {
                 };
             }
         }
+    }
+
+    fn get_adapter_state(&mut self, fut: CoreBluetoothReplyStateShared) {
+        let state = cb::centralmanager_state(*self.manager);
+        fut.lock()
+            .unwrap()
+            .set_reply(CoreBluetoothReply::AdapterState(state))
     }
 
     fn start_discovery(&mut self, filter: ScanFilter) {
