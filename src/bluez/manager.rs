@@ -22,6 +22,7 @@ impl api::Manager for Manager {
 
     async fn adapters(&self) -> Result<Vec<Adapter>> {
         let adapters = self.session.get_adapters().await?;
+        println!("Adapters {:?}", adapters);
         Ok(adapters
             .into_iter()
             .map(|adapter| Adapter::new(self.session.clone(), adapter.id))

@@ -4,6 +4,7 @@ use crate::{Error, Result};
 use async_trait::async_trait;
 use bluez_async::{
     AdapterId, BluetoothError, BluetoothEvent, BluetoothSession, DeviceEvent, DiscoveryFilter,
+    AdapterEvent,
     Transport,
 };
 use futures::stream::{self, Stream, StreamExt};
@@ -19,6 +20,13 @@ pub struct Adapter {
 impl Adapter {
     pub(crate) fn new(session: BluetoothSession, adapter: AdapterId) -> Self {
         Self { session, adapter }
+    }
+}
+
+fn get_central_state(state: bool) -> CentralState {
+    match state {
+        true => CentralState::PoweredOn,
+        false => CentralState::PoweredOff,
     }
 }
 
@@ -51,7 +59,7 @@ impl Central for Adapter {
         let session = self.session.clone();
         let adapter_id = self.adapter.clone();
         let events = events
-            .filter_map(move |event| central_event(event, session.clone(), adapter_id.clone()));
+        .filter_map(move |event| central_event(event, session.clone(), adapter_id.clone()));
 
         Ok(Box::pin(initial_events.chain(events)))
     }
@@ -107,7 +115,11 @@ impl Central for Adapter {
     }
 
     async fn adapter_state(&self) -> Result<CentralState> {
-        Ok(CentralState::Unknown)
+        let mut powered = false;
+        if let Ok(info) = self.session.get_adapter_info(&self.adapter).await {
+            powered = info.powered;
+        }
+        Ok(get_central_state(powered))
     }
 }
 
@@ -164,6 +176,16 @@ async fn central_event(
                     services,
                 })
             }
+            _ => None,
+        },
+        BluetoothEvent::Adapter {
+            id,
+            event: adapter_event,
+        } if id == adapter_id => match adapter_event {
+            AdapterEvent::Powered { powered } => {
+                let state = get_central_state(powered);
+                Some(CentralEvent::StateUpdate(state.into()))
+            },
             _ => None,
         },
         _ => None,
