@@ -22,8 +22,8 @@ impl Adapter {
     }
 }
 
-fn get_central_state(state: bool) -> CentralState {
-    match state {
+fn get_central_state(powered: bool) -> CentralState {
+    match powered {
         true => CentralState::PoweredOn,
         false => CentralState::PoweredOff,
     }
@@ -183,7 +183,7 @@ async fn central_event(
         } if id == adapter_id => match adapter_event {
             AdapterEvent::Powered { powered } => {
                 let state = get_central_state(powered);
-                Some(CentralEvent::StateUpdate(state.into()))
+                Some(CentralEvent::StateUpdate(state))
             }
             _ => None,
         },
