@@ -256,6 +256,50 @@ impl api::Peripheral for Peripheral {
         Ok(())
     }
 
+    async fn connect_with_timeout(&self, timeout: std::time::Duration) -> Result<()> {
+        let fut = CoreBluetoothReplyFuture::default();
+        let mut tm_d = self.shared.message_sender.clone();
+        let uuid = self.shared.uuid.clone();
+        let fut_state = fut.get_state_clone();
+
+        let timeout_task = tokio::spawn(async move {
+            println!("Start connection timeout.");
+            tokio::time::sleep(tokio::time::Duration::from_millis(5000)).await;
+            println!("Connection timeout. disconnectting...");
+            let _ = tm_d
+                .send(CoreBluetoothMessage::DisconnectDevice {
+                    peripheral_uuid: uuid,
+                    future: fut_state,
+                })
+                .await;
+        });
+
+        self.shared
+            .message_sender
+            .to_owned()
+            .send(CoreBluetoothMessage::ConnectDevice {
+                peripheral_uuid: self.shared.uuid,
+                future: fut.get_state_clone(),
+            })
+            .await?;
+
+        match fut.await {
+            CoreBluetoothReply::Connected(services) => {
+                *(self.shared.services.lock().unwrap()) = services;
+                self.shared
+                    .emit_event(CentralEvent::DeviceConnected(self.shared.uuid.into()));
+            }
+            CoreBluetoothReply::Err(msg) => return Err(Error::RuntimeError(msg)),
+            _ => panic!("Shouldn't get anything but connected or err!"),
+        }
+
+        println!("Abort connection timeout");
+        timeout_task.abort();
+
+        trace!("Device connected!");
+        Ok(())
+    }
+
     async fn disconnect(&self) -> Result<()> {
         let fut = CoreBluetoothReplyFuture::default();
         self.shared
