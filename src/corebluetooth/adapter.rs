@@ -103,11 +103,18 @@ impl Central for Adapter {
     }
 
     async fn start_scan(&self, filter: ScanFilter) -> Result<()> {
+        let fut = CoreBluetoothReplyFuture::default();
         self.sender
             .to_owned()
-            .send(CoreBluetoothMessage::StartScanning { filter })
+            .send(CoreBluetoothMessage::StartScanning { filter, future: fut.get_state_clone() })
             .await?;
-        Ok(())
+
+        match fut.await {
+            CoreBluetoothReply::Ok => {
+                return Ok(());
+            }
+            _ => panic!("Shouldn't get anything but a Ok!"),
+        }
     }
 
     async fn stop_scan(&self) -> Result<()> {

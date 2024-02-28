@@ -357,6 +357,7 @@ pub enum CoreBluetoothMessage {
     },
     StartScanning {
         filter: ScanFilter,
+        future: CoreBluetoothReplyStateShared,
     },
     StopScanning,
     ConnectDevice {
@@ -1087,7 +1088,9 @@ impl CoreBluetoothInternal {
                     CoreBluetoothMessage::GetAdapterState { future } => {
                         self.get_adapter_state(future);
                     },
-                    CoreBluetoothMessage::StartScanning{filter} => self.start_discovery(filter),
+                    CoreBluetoothMessage::StartScanning{filter, future} => {
+                        self.start_discovery(filter, future).await;
+                    },
                     CoreBluetoothMessage::StopScanning => self.stop_discovery(),
                     CoreBluetoothMessage::ConnectDevice{peripheral_uuid, future} => {
                         trace!("got connectdevice msg!");
@@ -1137,7 +1140,7 @@ impl CoreBluetoothInternal {
             .set_reply(CoreBluetoothReply::AdapterState(state))
     }
 
-    fn start_discovery(&mut self, filter: ScanFilter) {
+    async fn start_discovery(&mut self, filter: ScanFilter,  fut: CoreBluetoothReplyStateShared,) {
         trace!("BluetoothAdapter::start_discovery");
         let service_uuids = scan_filter_to_service_uuids(filter);
         let options = ns::mutabledictionary();
@@ -1146,11 +1149,23 @@ impl CoreBluetoothInternal {
         ns::mutabledictionary_setobject_forkey(options, ns::number_withbool(YES), unsafe {
             cb::CENTRALMANAGERSCANOPTIONALLOWDUPLICATESKEY
         });
+
+        let connected = cb::centralmanager_retrieveconnectedperipherals(
+            *self.manager,
+            service_uuids
+        );
+        for i in 0..ns::array_count(connected) {
+            let p = ns::array_objectatindex(connected, i);
+            let peripheral = unsafe { StrongPtr::retain(p) };
+            self.on_discovered_peripheral(peripheral).await;
+        }
         cb::centralmanager_scanforperipheralswithservices_options(
             *self.manager,
             service_uuids,
             options,
         );
+
+        fut.lock().unwrap().set_reply(CoreBluetoothReply::Ok);
     }
 
     fn stop_discovery(&mut self) {

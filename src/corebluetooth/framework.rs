@@ -185,6 +185,14 @@ pub mod cb {
         unsafe { msg_send![cbcentralmanager, state] }
     }
 
+    // https://developer.apple.com/documentation/corebluetooth/cbcentralmanager/1518924-retrieveconnectedperipheralswith
+    pub fn centralmanager_retrieveconnectedperipherals(
+        cbcentralmanager: id,
+        service_uuids: id, /* NSArray<CBUUID *> */
+    ) -> id /* NSArray<CBPeripheral *> */ {
+        unsafe { msg_send![cbcentralmanager, retrieveConnectedPeripheralsWithServices:service_uuids] }
+    }
+
     // https://developer.apple.com/documentation/corebluetooth/cbmanagerstate
     #[derive(Copy, Clone, Debug, Eq, PartialEq)]
     #[repr(i64)]
