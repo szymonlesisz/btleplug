@@ -258,15 +258,15 @@ impl api::Peripheral for Peripheral {
 
     async fn connect_with_timeout(&self, timeout: std::time::Duration) -> Result<()> {
         let fut = CoreBluetoothReplyFuture::default();
-        let mut tm_d = self.shared.message_sender.clone();
         let uuid = self.shared.uuid.clone();
         let fut_state = fut.get_state_clone();
 
+        let mut timeout_sender = self.shared.message_sender.clone();
         let timeout_task = tokio::spawn(async move {
             println!("Start connection timeout.");
-            tokio::time::sleep(tokio::time::Duration::from_millis(5000)).await;
+            tokio::time::sleep(timeout).await;
             println!("Connection timeout. disconnectting...");
-            let _ = tm_d
+            let _ = timeout_sender
                 .send(CoreBluetoothMessage::DisconnectDevice {
                     peripheral_uuid: uuid,
                     future: fut_state,
