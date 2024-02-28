@@ -1,0 +1,2 @@
+- corebluetooth mac never retrieved (00:00:00) https://community.silabs.com/s/article/x-how-to-get-a-ble-peripheral-mac-address-with-ios-and-corebluetooth?language=en_US
+- very useful: https://wojciechkulik.pl/ios/swift-bluetooth-low-energy-how-to-get-paired-devices
