@@ -1149,6 +1149,39 @@ impl CoreBluetoothInternal {
         ns::mutabledictionary_setobject_forkey(options, ns::number_withbool(YES), unsafe {
             cb::CENTRALMANAGERSCANOPTIONALLOWDUPLICATESKEY
         });
+        let device_uuids = scan_filter_to_service_uuids(ScanFilter {
+            services: vec![Uuid::from_u128(0x1d3e383b_2f2a_c1c2_c59b_0cc82d0500d5)]
+        });
+        let paired = cb::centralmanager_retrieveperipherals(
+            *self.manager,
+            device_uuids
+        );
+        // let p = vec![];
+        for i in 0..ns::array_count(paired) {
+            let mut peripheral = ns::array_objectatindex(paired, i);
+            let held_peripheral = unsafe { StrongPtr::retain(peripheral) };
+            // let p = peripheral_debug(s);
+            let uuid = cbuuid_to_uuid(peripheral);
+
+            // p.push(held_peripheral);
+
+            // let uuid = nsuuid_to_uuid(cb::peer_identifier(*held_peripheral));
+            // let name = nsstring_to_string(cb::peripheral_name(*held_peripheral));
+            // let peripheral_uuid = nsuuid_to_uuid(cb::peer_identifier(peripheral));
+            println!("iter paired {:?}, {:?}", peripheral, uuid);
+            let held_peripheral = unsafe { StrongPtr::retain(peripheral) };
+
+            self.on_discovered_peripheral(held_peripheral);
+        }
+
+        // let stream = stream::iter(p);
+
+        // p.into_iter().map(async |pe|  {
+        //     self.on_discovered_peripheral(pe).await;
+        //     // Ok(())
+        // });
+
+       
 
         let connected = cb::centralmanager_retrieveconnectedperipherals(
             *self.manager,
