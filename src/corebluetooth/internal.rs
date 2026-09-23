@@ -9,6 +9,7 @@
 // multiple), see https://forums.developer.apple.com/thread/20810
 
 use super::{
+    autoreleasepool_future::AutoreleasePoolFuture,
     callback_queue::CallbackQueue,
     central_delegate::{CentralDelegate, CentralDelegateEvent},
     future::{BtlePlugFuture, BtlePlugFutureStateShared},
@@ -29,7 +30,10 @@ use futures::sink::SinkExt;
 use futures::stream::{Fuse, StreamExt};
 use log::{debug, error, trace, warn};
 use objc2::{AnyThread, msg_send};
-use objc2::{rc::Retained, runtime::AnyObject};
+use objc2::{
+    rc::{Retained, autoreleasepool},
+    runtime::AnyObject,
+};
 use objc2_core_bluetooth::{
     CBCentralManager, CBCentralManagerScanOptionAllowDuplicatesKey, CBCharacteristic,
     CBCharacteristicProperties, CBCharacteristicWriteType, CBDescriptor, CBManager,
@@ -1576,7 +1580,7 @@ impl CoreBluetoothInternal {
         .await;
     }
 
-    async fn wait_for_message(&mut self) {
+    async fn wait_for_message(&mut self) -> bool {
         select! {
             delegate_msg = self.delegate_receiver.select_next_some() => {
                 match delegate_msg {
@@ -1667,7 +1671,10 @@ impl CoreBluetoothInternal {
                     },
                 };
             }
-            adapter_msg = self.message_receiver.select_next_some() => {
+            adapter_msg = self.message_receiver.next() => {
+                let Some(adapter_msg) = adapter_msg else {
+                    return false;
+                };
                 trace!("Adapter message!");
                 match adapter_msg {
                     CoreBluetoothMessage::GetAdapterState { future } => {
@@ -1728,6 +1735,7 @@ impl CoreBluetoothInternal {
                 };
             }
         }
+        true
     }
 
     fn get_adapter_state(&mut self, fut: CoreBluetoothReplyStateShared) {
@@ -2712,7 +2720,7 @@ mod tests {
 pub fn run_corebluetooth_thread(
     event_sender: Sender<CoreBluetoothEvent>,
 ) -> Result<Sender<CoreBluetoothMessage>, Error> {
-    let authorization = unsafe { CBManager::authorization_class() };
+    let authorization = autoreleasepool(|_| unsafe { CBManager::authorization_class() });
     if authorization != CBManagerAuthorization::AllowedAlways
         && authorization != CBManagerAuthorization::NotDetermined
     {
@@ -2726,10 +2734,12 @@ pub fn run_corebluetooth_thread(
     thread::spawn(move || {
         let runtime = runtime::Builder::new_current_thread().build().unwrap();
         runtime.block_on(async move {
-            let mut cbi = CoreBluetoothInternal::new(receiver, event_sender);
-            loop {
-                cbi.wait_for_message().await;
-            }
+            let cbi = autoreleasepool(|_| CoreBluetoothInternal::new(receiver, event_sender));
+            AutoreleasePoolFuture::new(async move {
+                let mut cbi = cbi;
+                while cbi.wait_for_message().await {}
+            })
+            .await;
         })
     });
     Ok(sender)
