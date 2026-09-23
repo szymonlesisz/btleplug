@@ -9,8 +9,9 @@
 // multiple), see https://forums.developer.apple.com/thread/20810
 
 use super::{
+    autoreleasepool_future::AutoreleasePoolFuture,
+    callback_queue::CallbackQueue,
     central_delegate::{CentralDelegate, CentralDelegateEvent},
-    ffi,
     future::{BtlePlugFuture, BtlePlugFutureStateShared},
     peripheral::Peripheral,
     utils::{
@@ -29,7 +30,10 @@ use futures::sink::SinkExt;
 use futures::stream::{Fuse, StreamExt};
 use log::{debug, error, trace, warn};
 use objc2::{AnyThread, msg_send};
-use objc2::{rc::Retained, runtime::AnyObject};
+use objc2::{
+    rc::{Retained, autoreleasepool},
+    runtime::AnyObject,
+};
 use objc2_core_bluetooth::{
     CBCentralManager, CBCentralManagerScanOptionAllowDuplicatesKey, CBCharacteristic,
     CBCharacteristicProperties, CBCharacteristicWriteType, CBDescriptor, CBManager,
@@ -38,7 +42,6 @@ use objc2_core_bluetooth::{
 use objc2_foundation::{NSArray, NSData, NSMutableDictionary, NSNumber, NSString, NSUUID};
 use std::{
     collections::{BTreeSet, HashMap, VecDeque},
-    ffi::CString,
     fmt::{self, Debug, Formatter},
     ops::Deref,
     thread,
@@ -539,7 +542,10 @@ fn complete_missing(fut: CoreBluetoothReplyStateShared, object: &str) {
 // ass mut *Object values, keep them in a single struct, in a single thread, and
 // call it good. Right?
 struct CoreBluetoothInternal {
+    // Drop order matters: manager must release before callback_queue.
     manager: Retained<CBCentralManager>,
+    #[allow(dead_code, reason = "owns the CallbackQueue")]
+    callback_queue: CallbackQueue,
     delegate: Retained<CentralDelegate>,
     // Map of identifiers to object pointers
     peripherals: HashMap<Uuid, PeripheralInternal>,
@@ -687,17 +693,16 @@ impl CoreBluetoothInternal {
         let (sender, receiver) = mpsc::channel::<CentralDelegateEvent>(256);
         let delegate = CentralDelegate::new(sender);
 
-        let label = CString::new("CBqueue").unwrap();
-        let queue =
-            unsafe { ffi::dispatch_queue_create(label.as_ptr(), ffi::DISPATCH_QUEUE_SERIAL) };
-        let queue: *mut AnyObject = queue.cast();
+        let callback_queue = CallbackQueue::new();
 
         let manager = unsafe {
+            let queue: *mut AnyObject = callback_queue.as_ptr().cast();
             msg_send![CBCentralManager::alloc(), initWithDelegate: &*delegate, queue: queue]
         };
 
         Self {
             manager,
+            callback_queue,
             peripherals: HashMap::new(),
             delegate_receiver: receiver.fuse(),
             event_sender,
@@ -1575,7 +1580,7 @@ impl CoreBluetoothInternal {
         .await;
     }
 
-    async fn wait_for_message(&mut self) {
+    async fn wait_for_message(&mut self) -> bool {
         select! {
             delegate_msg = self.delegate_receiver.select_next_some() => {
                 match delegate_msg {
@@ -1666,7 +1671,10 @@ impl CoreBluetoothInternal {
                     },
                 };
             }
-            adapter_msg = self.message_receiver.select_next_some() => {
+            adapter_msg = self.message_receiver.next() => {
+                let Some(adapter_msg) = adapter_msg else {
+                    return false;
+                };
                 trace!("Adapter message!");
                 match adapter_msg {
                     CoreBluetoothMessage::GetAdapterState { future } => {
@@ -1727,6 +1735,7 @@ impl CoreBluetoothInternal {
                 };
             }
         }
+        true
     }
 
     fn get_adapter_state(&mut self, fut: CoreBluetoothReplyStateShared) {
@@ -2711,7 +2720,7 @@ mod tests {
 pub fn run_corebluetooth_thread(
     event_sender: Sender<CoreBluetoothEvent>,
 ) -> Result<Sender<CoreBluetoothMessage>, Error> {
-    let authorization = unsafe { CBManager::authorization_class() };
+    let authorization = autoreleasepool(|_| unsafe { CBManager::authorization_class() });
     if authorization != CBManagerAuthorization::AllowedAlways
         && authorization != CBManagerAuthorization::NotDetermined
     {
@@ -2725,10 +2734,12 @@ pub fn run_corebluetooth_thread(
     thread::spawn(move || {
         let runtime = runtime::Builder::new_current_thread().build().unwrap();
         runtime.block_on(async move {
-            let mut cbi = CoreBluetoothInternal::new(receiver, event_sender);
-            loop {
-                cbi.wait_for_message().await;
-            }
+            let cbi = autoreleasepool(|_| CoreBluetoothInternal::new(receiver, event_sender));
+            AutoreleasePoolFuture::new(async move {
+                let mut cbi = cbi;
+                while cbi.wait_for_message().await {}
+            })
+            .await;
         })
     });
     Ok(sender)
