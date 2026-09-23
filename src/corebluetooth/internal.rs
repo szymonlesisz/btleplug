@@ -9,8 +9,8 @@
 // multiple), see https://forums.developer.apple.com/thread/20810
 
 use super::{
+    callback_queue::CallbackQueue,
     central_delegate::{CentralDelegate, CentralDelegateEvent},
-    ffi,
     future::{BtlePlugFuture, BtlePlugFutureStateShared},
     peripheral::Peripheral,
     utils::{
@@ -38,7 +38,6 @@ use objc2_core_bluetooth::{
 use objc2_foundation::{NSArray, NSData, NSMutableDictionary, NSNumber, NSString, NSUUID};
 use std::{
     collections::{BTreeSet, HashMap, VecDeque},
-    ffi::CString,
     fmt::{self, Debug, Formatter},
     ops::Deref,
     thread,
@@ -539,7 +538,10 @@ fn complete_missing(fut: CoreBluetoothReplyStateShared, object: &str) {
 // ass mut *Object values, keep them in a single struct, in a single thread, and
 // call it good. Right?
 struct CoreBluetoothInternal {
+    // Drop order matters: manager must release before callback_queue.
     manager: Retained<CBCentralManager>,
+    #[allow(dead_code, reason = "owns the CallbackQueue")]
+    callback_queue: CallbackQueue,
     delegate: Retained<CentralDelegate>,
     // Map of identifiers to object pointers
     peripherals: HashMap<Uuid, PeripheralInternal>,
@@ -687,17 +689,16 @@ impl CoreBluetoothInternal {
         let (sender, receiver) = mpsc::channel::<CentralDelegateEvent>(256);
         let delegate = CentralDelegate::new(sender);
 
-        let label = CString::new("CBqueue").unwrap();
-        let queue =
-            unsafe { ffi::dispatch_queue_create(label.as_ptr(), ffi::DISPATCH_QUEUE_SERIAL) };
-        let queue: *mut AnyObject = queue.cast();
+        let callback_queue = CallbackQueue::new();
 
         let manager = unsafe {
+            let queue: *mut AnyObject = callback_queue.as_ptr().cast();
             msg_send![CBCentralManager::alloc(), initWithDelegate: &*delegate, queue: queue]
         };
 
         Self {
             manager,
+            callback_queue,
             peripherals: HashMap::new(),
             delegate_receiver: receiver.fuse(),
             event_sender,

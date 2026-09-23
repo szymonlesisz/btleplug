@@ -6,6 +6,7 @@
 // for full license information.
 
 pub mod adapter;
+mod callback_queue;
 mod central_delegate;
 mod ffi;
 mod future;
